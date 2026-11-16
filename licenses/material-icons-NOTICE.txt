@@ -1,0 +1,4 @@
+The icons in app/src/main/res/drawable/ic_opened.xml, ic_saved.xml and ic_drive.xml are
+Material Design icons ("visibility", "edit", "cloud") by Google, licensed under the
+Apache License, Version 2.0: https://www.apache.org/licenses/LICENSE-2.0
+Source: https://github.com/google/material-design-icons
