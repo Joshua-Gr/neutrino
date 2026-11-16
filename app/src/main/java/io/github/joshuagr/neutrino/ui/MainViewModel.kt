@@ -13,11 +13,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
-import me.proton.drive.sdk.entity.FileDownloaderRequest
-import me.proton.drive.sdk.entity.FileNode
-import me.proton.drive.sdk.entity.FileRevisionUploaderRequest
 
 sealed interface UiState {
     data object SignedOut : UiState
@@ -83,40 +79,6 @@ class MainViewModel(
         }
     }
 
-    /**
-     * Debug builds only: forces the next request through the token-refresh path. With [viaAccount]
-     * the Drive client is rebuilt so the account endpoints hit the 401 first; otherwise the SDK's
-     * own requests do.
-     */
-    fun debugExpireAndReload(viaAccount: Boolean) {
-        sessions.debugExpireAccessToken()
-        if (viaAccount) viewModelScope.launch { drive.close() }.invokeOnCompletion { loadAccount() } else loadAccount()
-    }
-
-    /**
-     * Debug builds only: uploads the current content of "neutrino-test.kdbx" in My files as a new
-     * revision, as another device would, so the next save from this phone takes the conflict path.
-     */
-    fun debugSimulateRemoteChange() {
-        viewModelScope.launch {
-            report {
-                val client = drive.get()
-                val root = client.getMyFilesFolder()
-                val file = client.enumerateNodes(client.enumerateFolderChildrenNodeUids(root.uid).toList()).toList()
-                    .filterIsInstance<FileNode>().firstOrNull { it.name.getOrNull() == DEBUG_TEST_FILE }
-                    ?: error("No $DEBUG_TEST_FILE in the top level of My files")
-                val bytes = java.io.ByteArrayOutputStream().also { out ->
-                    client.downloader(FileDownloaderRequest(file.activeRevision.uid)).use {
-                        it.downloadToStream(this, java.nio.channels.Channels.newChannel(out)).awaitCompletion()
-                    }
-                }.toByteArray()
-                client.uploader(FileRevisionUploaderRequest(file.activeRevision.uid, java.time.OffsetDateTime.now(), bytes.size.toLong()))
-                    .use { it.uploadFromStream(this, java.nio.channels.Channels.newChannel(bytes.inputStream())).awaitCompletion() }
-                errorState.value = "Debug: $DEBUG_TEST_FILE changed in Drive (new revision, same content)"
-            }
-        }
-    }
-
     fun loadAccount() {
         viewModelScope.launch {
             state.value = UiState.SignedIn(keys.primaryEmail, pending.all().size)
@@ -126,10 +88,6 @@ class MainViewModel(
             }
             if (sessions.current() == null) state.value = UiState.SignedOut
         }
-    }
-
-    private companion object {
-        const val DEBUG_TEST_FILE = "neutrino-test.kdbx"
     }
 
     private suspend fun report(block: suspend () -> Unit) {

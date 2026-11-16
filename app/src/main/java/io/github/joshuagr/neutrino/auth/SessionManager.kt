@@ -68,13 +68,6 @@ class SessionManager(private val store: SessionStore, private val api: ProtonApi
         }
     }
 
-    /** Debug builds only: invalidates the access token so the refresh path can be exercised on demand. */
-    fun debugExpireAccessToken() {
-        val session = state.value ?: return
-        signedIn(session.withTokens(session.uid, "invalid-for-test", session.refreshToken))
-        Log.i(TAG, "Debug: access token invalidated")
-    }
-
     /** Revokes the session on the server (best effort) and forgets it locally. */
     suspend fun signOut() {
         state.value?.let { session ->

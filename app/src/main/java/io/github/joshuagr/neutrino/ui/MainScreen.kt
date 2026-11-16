@@ -44,7 +44,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import io.github.joshuagr.neutrino.BuildConfig
 import io.github.joshuagr.neutrino.access.AccessEntry
 import org.koin.androidx.compose.koinViewModel
 
@@ -66,7 +65,6 @@ fun MainScreen(
             onSignIn = { viewModel.signIn(openSignIn, waitForSignIn, returnToApp) },
             onReopen = openSignIn,
             onSignOut = viewModel::signOut,
-            viewModel = viewModel,
             modifier = Modifier.weight(1f).fillMaxWidth().padding(16.dp),
         )
         FileList(files, Modifier.weight(2f).fillMaxWidth())
@@ -80,7 +78,6 @@ private fun AccountPanel(
     onSignIn: () -> Unit,
     onReopen: (String) -> Unit,
     onSignOut: () -> Unit,
-    viewModel: MainViewModel,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -107,7 +104,7 @@ private fun AccountPanel(
                     TextButton(onClick = { onReopen(ui.signInUrl) }) { Text("Open the sign-in page again") }
                 }
             }
-            is UiState.SignedIn -> SignedIn(ui, onSignOut, viewModel)
+            is UiState.SignedIn -> SignedIn(ui, onSignOut)
         }
         error?.let {
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, maxLines = 3)
@@ -121,7 +118,7 @@ private fun AccountPanel(
 }
 
 @Composable
-private fun ColumnScope.SignedIn(ui: UiState.SignedIn, onSignOut: () -> Unit, viewModel: MainViewModel) {
+private fun ColumnScope.SignedIn(ui: UiState.SignedIn, onSignOut: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Avatar(ui.email)
         Spacer(Modifier.width(14.dp))
@@ -133,7 +130,7 @@ private fun ColumnScope.SignedIn(ui: UiState.SignedIn, onSignOut: () -> Unit, vi
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Menu(onSignOut, viewModel)
+        Menu(onSignOut)
     }
     Spacer(Modifier.weight(1f))
 }
@@ -153,26 +150,12 @@ private fun Avatar(email: String?) {
 }
 
 @Composable
-private fun Menu(onSignOut: () -> Unit, viewModel: MainViewModel) {
+private fun Menu(onSignOut: () -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         TextButton(onClick = { open = true }) { Text("⋮", style = MaterialTheme.typography.titleLarge) }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             DropdownMenuItem(text = { Text("Sign out") }, onClick = { open = false; onSignOut() })
-            if (BuildConfig.DEBUG) {
-                DropdownMenuItem(
-                    text = { Text("Debug: expire token (SDK path)") },
-                    onClick = { open = false; viewModel.debugExpireAndReload(viaAccount = false) },
-                )
-                DropdownMenuItem(
-                    text = { Text("Debug: expire token (account path)") },
-                    onClick = { open = false; viewModel.debugExpireAndReload(viaAccount = true) },
-                )
-                DropdownMenuItem(
-                    text = { Text("Debug: change test file in Drive") },
-                    onClick = { open = false; viewModel.debugSimulateRemoteChange() },
-                )
-            }
         }
     }
 }
