@@ -56,7 +56,7 @@ class NeutrinoDocumentsProvider : DocumentsProvider() {
             .add(Root.COLUMN_TITLE, context?.getString(R.string.app_name))
             .add(Root.COLUMN_SUMMARY, keys.primaryEmail)
             .add(Root.COLUMN_FLAGS, Root.FLAG_SUPPORTS_IS_CHILD or Root.FLAG_SUPPORTS_CREATE)
-            .add(Root.COLUMN_ICON, android.R.drawable.ic_menu_upload)
+            .add(Root.COLUMN_ICON, R.drawable.ic_picker_root)
         return cursor
     }
 

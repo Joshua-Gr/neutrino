@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The launcher mark at picker size: the particle and its trail on a transparent background. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:pathData="M3.5,20 Q6,11.5 15,9" android:strokeWidth="2.2" android:strokeLineCap="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient android:type="linear" android:startX="3.5" android:startY="20" android:endX="15" android:endY="9">
+                <item android:offset="0" android:color="#006D4AFF" />
+                <item android:offset="1" android:color="#FF6D4AFF" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:fillColor="#336D4AFF" android:pathData="M15,9m-5,0a5,5 0,1 1,10 0a5,5 0,1 1,-10 0" />
+    <path android:fillColor="#FF6D4AFF" android:pathData="M15,9m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+</vector>
