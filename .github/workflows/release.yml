@@ -1,0 +1,82 @@
+name: Release
+
+# Tag-driven: `git tag -s v0.1.0 && git push origin v0.1.0`. versionName comes from
+# `git describe`, so the tag is the version. Obtainium watches this repo's releases and
+# picks up the attached APK.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Not optional: a shallow clone yields a tiny versionCode, which Android reads as a
+          # downgrade and refuses to install over an existing build.
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Checks
+        run: ./gradlew detekt testDebugUnitTest --no-daemon
+
+      - name: Decode keystore
+        env:
+          RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$RELEASE_KEYSTORE_B64" ]; then
+            echo "::error::RELEASE_KEYSTORE_B64 is not set. Without it the APK builds unsigned and cannot be installed as an update."
+            exit 1
+          fi
+          echo "$RELEASE_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Assemble signed release APK
+        env:
+          RELEASE_STORE_FILE: ${{ runner.temp }}/release.jks
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: ./gradlew :app:assembleRelease --no-daemon
+
+      # Missing credentials produce an UNSIGNED apk rather than a failed build, which suits a
+      # local R8 check and is wrong for a release: catch it before it reaches a Release.
+      - name: Verify the APK is signed
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          if [ ! -f "$APK" ]; then
+            echo "::error::$APK missing: the build produced an unsigned APK, so signing credentials did not reach Gradle."
+            ls -la app/build/outputs/apk/release/
+            exit 1
+          fi
+          # Exactly one apksigner; a bare glob expands to every installed build-tools version.
+          APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$APKSIGNER" verify --print-certs "$APK"
+
+      - name: Shred the keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Named per version so Obtainium and browsers never serve a stale cached file.
+          cp app/build/outputs/apk/release/app-release.apk "neutrino-${VERSION}.apk"
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            "neutrino-${VERSION}.apk"

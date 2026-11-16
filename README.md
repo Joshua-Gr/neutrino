@@ -1,33 +1,56 @@
 # Neutrino
 
 An Android [document provider](https://developer.android.com/guide/topics/providers/document-provider)
-that exposes files stored in Proton Drive through the system file picker, so apps that only
-work with files picked that way, such as [KeePassDX](https://www.keepassdx.com/), can open and
-save them in place.
+that exposes files stored in Proton Drive through the system file picker, so apps that only work
+with files picked that way, such as [KeePassDX](https://www.keepassdx.com/), can open and save them
+in place.
 
 > **Third-party application, not affiliated with or supported by Proton.**
 
 ## Why
 
 Some apps deliberately support only the system file picker and no cloud connectors. Proton Drive
-for Android does not offer a writable document provider, so those apps cannot save back to a
-file kept in Drive. Neutrino fills that gap until an official option exists — a temporary
-answer to a temporary problem.
+for Android does not offer a writable document provider, so those apps cannot save back to a file
+kept in Drive. Neutrino fills that gap until an official option exists: a temporary answer to a
+temporary problem.
 
-## Design
+## How it works
 
-- Sign-in will happen in the browser on Proton's own page; Neutrino never sees the account
-  password.
-- Files will be read and written through the official
+- **Sign-in** happens in the browser on Proton's own page; Neutrino never sees the account
+  password. The session is stored encrypted with an Android Keystore key.
+- **Files** are read and written through the official
   [Proton Drive SDK](https://github.com/ProtonDriveApps/sdk), with Proton's end-to-end encryption.
-- A save will land locally at once and be uploaded in the background as a new revision of the
-  same file. Revision history is kept, and a save made against an outdated version is stored as
-  a conflict copy instead of overwriting newer work.
+- **Saves** land on the device at once and are uploaded in the background as a new revision of
+  the same file. Revision history is kept. A save made against a version that has since changed
+  in Drive is uploaded beside it as a conflict copy, so nothing is overwritten, and you are
+  notified.
+- **Offline**: the last version of each file read through Neutrino is kept encrypted on the
+  device and served when Drive is unreachable; saves made offline upload when the network returns.
+- **The app** shows the account, how many saves are waiting, and the files other apps have opened
+  through it, with when each was last accessed and updated.
 
-## Status
+## Install
 
-Early development; nothing is released yet.
+Releases are published on this repository's
+[Releases](https://github.com/Joshua-Gr/neutrino/releases) page. With
+[Obtainium](https://github.com/ImranR98/Obtainium), add this repository's URL to receive updates.
+
+Requires Android 16 (API 36) on an arm64 device.
+
+## Build
+
+```
+./gradlew assembleDebug
+```
+
+Release builds are signed when `RELEASE_STORE_FILE`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`
+and `RELEASE_KEY_PASSWORD` are set in the environment or in `local.properties`; otherwise the
+release APK is left unsigned. `./gradlew assembleR8check` builds the minified release signed with
+the debug key under its own application ID, to exercise R8 on a device.
+
+Releases are cut by pushing a signed `v*` tag; CI builds, signs and publishes the APK.
 
 ## License
 
-[GPL-3.0-only](LICENSE).
+[GPL-3.0-only](LICENSE). The bundled Inter typeface is licensed under the
+[SIL Open Font License 1.1](licenses/Inter-OFL.txt).
