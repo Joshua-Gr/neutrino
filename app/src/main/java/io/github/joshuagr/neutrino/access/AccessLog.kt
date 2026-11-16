@@ -16,8 +16,11 @@ data class AccessEntry(
     val lastOpenedAt: Long,
     val lastSavedAt: Long? = null,
     val lastUploadedAt: Long? = null,
+    /** When the file last changed in Drive, from any device, as far as this app has seen. */
+    val remoteUpdatedAt: Long? = null,
 ) {
     val lastActivityAt: Long get() = maxOf(lastOpenedAt, lastSavedAt ?: 0, lastUploadedAt ?: 0)
+    val lastRemoteUpdateAt: Long? get() = listOfNotNull(remoteUpdatedAt, lastUploadedAt).maxOrNull()
 }
 
 /**
@@ -29,9 +32,10 @@ class AccessLog(context: Context) {
     private val state = MutableStateFlow(load())
     val entries: StateFlow<List<AccessEntry>> = state.asStateFlow()
 
-    fun opened(documentId: String, fileName: String, packageName: String?) = update(documentId, fileName, packageName) {
-        it.copy(fileName = fileName, lastOpenedAt = System.currentTimeMillis())
-    }
+    fun opened(documentId: String, fileName: String, packageName: String?, remoteUpdatedAt: Long?) =
+        update(documentId, fileName, packageName) {
+            it.copy(fileName = fileName, lastOpenedAt = System.currentTimeMillis(), remoteUpdatedAt = remoteUpdatedAt ?: it.remoteUpdatedAt)
+        }
 
     fun saved(documentId: String, fileName: String, packageName: String?) = update(documentId, fileName, packageName) {
         it.copy(fileName = fileName, lastSavedAt = System.currentTimeMillis())
@@ -69,7 +73,7 @@ class AccessLog(context: Context) {
 
     private fun load(): List<AccessEntry> = runCatching {
         val json = JSONArray(file.readText())
-        (0 until json.length()).map { fromJson(json.getJSONObject(it)) }
+        (0 until json.length()).map { fromJson(json.getJSONObject(it)) }.filterNot { it.packageName in IGNORED_CALLERS }
     }.getOrDefault(emptyList())
 
     private fun toJson(entry: AccessEntry) = JSONObject()
@@ -79,6 +83,7 @@ class AccessLog(context: Context) {
         .put("lastOpenedAt", entry.lastOpenedAt)
         .put("lastSavedAt", entry.lastSavedAt ?: JSONObject.NULL)
         .put("lastUploadedAt", entry.lastUploadedAt ?: JSONObject.NULL)
+        .put("remoteUpdatedAt", entry.remoteUpdatedAt ?: JSONObject.NULL)
 
     private fun fromJson(json: JSONObject) = AccessEntry(
         documentId = json.getString("documentId"),
@@ -87,10 +92,14 @@ class AccessLog(context: Context) {
         lastOpenedAt = json.getLong("lastOpenedAt"),
         lastSavedAt = json.optLong("lastSavedAt").takeUnless { json.isNull("lastSavedAt") },
         lastUploadedAt = json.optLong("lastUploadedAt").takeUnless { json.isNull("lastUploadedAt") },
+        remoteUpdatedAt = json.optLong("remoteUpdatedAt").takeUnless { !json.has("remoteUpdatedAt") || json.isNull("remoteUpdatedAt") },
     )
 
     private companion object {
-        /** The system picker browses on behalf of the app that asked; it is not a user of the file. */
-        val IGNORED_CALLERS = setOf("com.google.android.documentsui", "com.android.documentsui")
+        /**
+         * The system picker browses on behalf of the app that asked, and the adb shell is a developer
+         * tool; neither is a user of the file.
+         */
+        val IGNORED_CALLERS = setOf("com.google.android.documentsui", "com.android.documentsui", "com.android.shell")
     }
 }

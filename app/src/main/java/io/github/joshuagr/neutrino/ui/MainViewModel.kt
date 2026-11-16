@@ -22,6 +22,8 @@ sealed interface UiState {
     data class SignedIn(val email: String?, val pendingUploads: Int) : UiState
 }
 
+private const val PENDING_REFRESH_MS = 3_000L
+
 class MainViewModel(
     private val sessions: SessionManager,
     private val forkLogin: ForkLogin,
@@ -40,6 +42,13 @@ class MainViewModel(
 
     init {
         if (sessions.current() != null) loadAccount()
+        // The waiting-uploads count changes from the provider and the upload worker; poll it cheaply.
+        viewModelScope.launch {
+            while (true) {
+                (state.value as? UiState.SignedIn)?.let { state.value = it.copy(pendingUploads = pending.all().size) }
+                kotlinx.coroutines.delay(PENDING_REFRESH_MS)
+            }
+        }
     }
 
     fun signIn(open: (String) -> Unit, keepNetwork: (Boolean) -> Unit, returnToApp: () -> Unit) {

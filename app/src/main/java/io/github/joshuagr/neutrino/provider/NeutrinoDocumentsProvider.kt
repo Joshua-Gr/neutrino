@@ -80,7 +80,10 @@ class NeutrinoDocumentsProvider : DocumentsProvider() {
     override fun openDocument(documentId: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor {
         val caller = callingPackage
         val descriptor = if (mode == "r") openForRead(documentId) else openForWrite(documentId, mode, caller)
-        runCatching { access.opened(documentId, blocking { docs.get(documentId) }.name, caller) }
+        runCatching {
+            val doc = blocking { docs.get(documentId) }
+            access.opened(documentId, doc.name, caller, doc.lastModified)
+        }
         return descriptor
     }
 
