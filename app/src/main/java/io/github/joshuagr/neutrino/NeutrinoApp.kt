@@ -1,6 +1,7 @@
 package io.github.joshuagr.neutrino
 
 import android.app.Application
+import android.content.Context
 import android.provider.DocumentsContract
 import io.github.joshuagr.neutrino.access.AccessLog
 import io.github.joshuagr.neutrino.api.ProtonApi
@@ -24,6 +25,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import org.koin.android.ext.koin.androidContext
+import org.koin.core.Koin
+import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
 import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
@@ -32,10 +35,7 @@ import java.util.concurrent.TimeUnit
 class NeutrinoApp : Application() {
     override fun onCreate() {
         super.onCreate()
-        val koin = startKoin {
-            androidContext(this@NeutrinoApp)
-            modules(appModule)
-        }.koin
+        val koin = Dependencies.start(this)
         // Saves survive process death on disk; make sure each one has an upload queued.
         koin.get<PendingStore>().all().forEach { UploadWorker.enqueue(this, it.documentId) }
         val sessions = koin.get<SessionManager>()
@@ -50,6 +50,18 @@ class NeutrinoApp : Application() {
     }
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+}
+
+/**
+ * Starts dependency injection once, from whichever comes first. Android creates content providers
+ * before Application.onCreate and can deliver a query to the provider before it has run.
+ */
+object Dependencies {
+    @Synchronized
+    fun start(context: Context): Koin = GlobalContext.getOrNull() ?: startKoin {
+        androidContext(context.applicationContext)
+        modules(appModule)
+    }.koin
 }
 
 private const val CONNECT_TIMEOUT_S = 20L

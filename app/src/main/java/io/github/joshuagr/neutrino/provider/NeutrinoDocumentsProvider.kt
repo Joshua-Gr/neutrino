@@ -19,7 +19,7 @@ import io.github.joshuagr.neutrino.upload.PendingStore
 import io.github.joshuagr.neutrino.upload.UploadWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
-import org.koin.core.context.GlobalContext
+import io.github.joshuagr.neutrino.Dependencies
 import java.io.File
 import java.io.FileNotFoundException
 
@@ -31,14 +31,15 @@ import java.io.FileNotFoundException
  * on close it becomes the pending save for that document and an upload is queued. The client's
  * close returns at once; the upload runs in the background and survives process death.
  *
- * Providers are created before Application.onCreate, so dependencies are looked up on first use.
+ * Providers are created before Application.onCreate, so dependencies are started on first use.
  */
 class NeutrinoDocumentsProvider : DocumentsProvider() {
-    private val sessions by lazy { GlobalContext.get().get<SessionManager>() }
-    private val keys by lazy { GlobalContext.get().get<AccountKeys>() }
-    private val docs by lazy { GlobalContext.get().get<DriveDocuments>() }
-    private val pending by lazy { GlobalContext.get().get<PendingStore>() }
-    private val access by lazy { GlobalContext.get().get<AccessLog>() }
+    private val koin by lazy { Dependencies.start(requireNotNull(context)) }
+    private val sessions by lazy { koin.get<SessionManager>() }
+    private val keys by lazy { koin.get<AccountKeys>() }
+    private val docs by lazy { koin.get<DriveDocuments>() }
+    private val pending by lazy { koin.get<PendingStore>() }
+    private val access by lazy { koin.get<AccessLog>() }
     private val closeHandler by lazy { Handler(HandlerThread("neutrino-close").apply { start() }.looper) }
     private val openDir by lazy { File(requireNotNull(context).noBackupFilesDir, "open").apply { mkdirs() } }
 
