@@ -33,9 +33,7 @@ temporary problem.
 
 <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22io.github.joshuagr.neutrino%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FJoshua-Gr%2Fneutrino%22%2C%22author%22%3A%22Joshua-Gr%22%2C%22name%22%3A%22Neutrino%22%7D"><img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png" alt="Get it on Obtainium" height="56"></a>
 
-With [Obtainium](https://github.com/ImranR98/Obtainium) installed, the badge adds Neutrino and keeps it
-updated. Releases are also published on this repository's
-[Releases](https://github.com/Joshua-Gr/neutrino/releases) page.
+APKs are also attached to each [release](https://github.com/Joshua-Gr/neutrino/releases).
 
 Requires Android 16 (API 36) on an arm64 device.
 
