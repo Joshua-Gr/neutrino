@@ -48,7 +48,7 @@ android {
         applicationId = "io.github.joshuagr.neutrino"
         minSdk = 36
         targetSdk = 36
-        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+        ndk { abiFilters += listOf("arm64-v8a") }
         versionCode = gitCommitCount
         versionName = gitVersionName
     }
@@ -78,6 +78,17 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             resValue("string", "app_name", "Neutrino")
             signingConfig = signingConfigs.findByName("release")
+        }
+        // The release build exactly as shipped (R8 and resource shrinking), signed with the debug
+        // key and installed beside the other builds, so what minification does to the native SDK
+        // can be exercised on a device without the release key.
+        create("r8check") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".r8check"
+            versionNameSuffix = "-r8check"
+            resValue("string", "app_name", "Neutrino (R8 check)")
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
         }
     }
 
