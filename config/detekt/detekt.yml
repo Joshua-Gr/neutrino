@@ -1,0 +1,43 @@
+## Detekt config for Neutrino. buildUponDefaultConfig = true supplies the
+## defaults; the overrides below are the deliberate departures from them.
+
+build:
+  maxIssues: 0
+  excludeCorrectable: false
+
+complexity:
+  LongMethod:
+    active: true
+    threshold: 80
+  LongParameterList:
+    active: true
+    functionThreshold: 8
+    constructorThreshold: 9
+    # Test data-builders and Compose stubs use all-default params; don't flag them.
+    ignoreDefaultParameters: true
+  CyclomaticComplexMethod:
+    active: true
+    threshold: 20
+  TooManyFunctions:
+    active: false
+  LargeClass:
+    active: false
+
+style:
+  MagicNumber:
+    active: false
+  ReturnCount:
+    active: true
+    max: 6
+  MaxLineLength:
+    active: true
+    maxLineLength: 140
+  UnusedPrivateMember:
+    active: true
+  ForbiddenComment:
+    active: false
+
+naming:
+  FunctionNaming:
+    # Compose @Composable functions are PascalCase by convention.
+    ignoreAnnotated: ['Composable']
