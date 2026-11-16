@@ -23,6 +23,9 @@ val gitVersionName = git("describe", "--tags", "--dirty", "--always")
     ?.takeIf { it.first().isDigit() }
     ?: "0.0.0-dev"
 
+/** Semantic-version core for the x-pm-appversion header Proton requires: external-drive-{name}@{semver}-{channel}. */
+val semverCore = Regex("""^\d+\.\d+\.\d+""").find(gitVersionName)?.value ?: "0.0.0"
+
 /** Release signing from env (CI) or the git-ignored local.properties; null builds an unsigned release. */
 val releaseSigning: Map<String, String>? = run {
     val local = Properties().apply {
@@ -45,6 +48,7 @@ android {
         applicationId = "io.github.joshuagr.neutrino"
         minSdk = 36
         targetSdk = 36
+        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         versionCode = gitCommitCount
         versionName = gitVersionName
     }
@@ -62,11 +66,13 @@ android {
 
     buildTypes {
         debug {
+            buildConfigField("String", "APP_VERSION_HEADER", "\"external-drive-neutrino@$semverCore-dev\"")
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
             resValue("string", "app_name", "Neutrino (debug)")
         }
         release {
+            buildConfigField("String", "APP_VERSION_HEADER", "\"external-drive-neutrino@$semverCore-alpha\"")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -83,6 +89,7 @@ android {
     buildFeatures {
         compose = true
         resValues = true
+        buildConfig = true
     }
 }
 
@@ -98,4 +105,12 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.okhttp)
+    implementation(libs.koin.android)
+    implementation(libs.koin.androidx.compose)
+    implementation(libs.proton.drive.sdk)
+    implementation(libs.proton.golib)
 }
