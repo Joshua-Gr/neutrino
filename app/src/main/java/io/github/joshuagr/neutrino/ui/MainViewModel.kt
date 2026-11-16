@@ -8,6 +8,7 @@ import io.github.joshuagr.neutrino.auth.ForkLogin
 import io.github.joshuagr.neutrino.auth.SessionManager
 import io.github.joshuagr.neutrino.drive.AccountKeys
 import io.github.joshuagr.neutrino.drive.DriveClientProvider
+import io.github.joshuagr.neutrino.provider.OfflineCache
 import io.github.joshuagr.neutrino.upload.PendingStore
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +29,7 @@ class MainViewModel(
     private val drive: DriveClientProvider,
     private val pending: PendingStore,
     private val accessLog: AccessLog,
+    private val offline: OfflineCache,
 ) : ViewModel() {
     val files: StateFlow<List<AccessEntry>> = accessLog.entries
     private val state = MutableStateFlow<UiState>(UiState.SignedOut)
@@ -74,6 +76,8 @@ class MainViewModel(
                 drive.wipe()
                 sessions.signOut()
                 accessLog.clear()
+                offline.clear()
+                pending.clearAll()
             }
             state.value = UiState.SignedOut
         }

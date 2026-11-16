@@ -40,6 +40,7 @@ class NeutrinoDocumentsProvider : DocumentsProvider() {
     private val docs by lazy { koin.get<DriveDocuments>() }
     private val pending by lazy { koin.get<PendingStore>() }
     private val access by lazy { koin.get<AccessLog>() }
+    private val offline by lazy { koin.get<OfflineCache>() }
     private val closeHandler by lazy { Handler(HandlerThread("neutrino-close").apply { start() }.looper) }
     private val openDir by lazy { File(requireNotNull(context).noBackupFilesDir, "open").apply { mkdirs() } }
 
@@ -90,12 +91,24 @@ class NeutrinoDocumentsProvider : DocumentsProvider() {
             return ParcelFileDescriptor.open(local.content, ParcelFileDescriptor.MODE_READ_ONLY)
         }
         val tmp = File.createTempFile("open", ".bin", openDir)
-        try {
-            pending.markServed(documentId, blocking { docs.download(documentId, tmp) })
-        } catch (e: FileNotFoundException) {
+        val revision = try {
+            blocking { docs.download(documentId, tmp) }.also { revision ->
+                runCatching { offline.put(blocking { docs.get(documentId) }, revision, tmp) }
+            }
+        } catch (e: MissingDocumentException) {
             tmp.delete()
             throw e
+        } catch (e: FileNotFoundException) {
+            // Drive unreachable: serve the last version read here, if there is one.
+            val cached = offline.decryptTo(documentId, tmp)
+            if (cached == null) {
+                tmp.delete()
+                throw e
+            }
+            log("open r by ${callingPackage ?: "?"}: offline copy")
+            cached
         }
+        pending.markServed(documentId, revision)
         log("open r by ${callingPackage ?: "?"}: ${tmp.length()} bytes")
         return ParcelFileDescriptor.open(tmp, ParcelFileDescriptor.MODE_READ_ONLY, closeHandler) { tmp.delete() }
     }
@@ -104,7 +117,11 @@ class NeutrinoDocumentsProvider : DocumentsProvider() {
         val local = pending.get(documentId)
         // The base is what the client last read, not what Drive holds now: a change made elsewhere
         // since that read must surface as a conflict, never be overwritten.
-        val base = pending.baseFor(documentId) ?: blocking { docs.activeRevision(documentId) }
+        val base = pending.baseFor(documentId)
+            ?: runCatching { blocking { docs.activeRevision(documentId) } }.getOrElse { e ->
+                if (e is MissingDocumentException) throw e
+                offline.revision(documentId) ?: throw e
+            }
         val working = pending.newWorkingFile()
         if (!mode.contains('t') && mode != "w") {
             // A read-write open without truncation edits the current content in place.
@@ -152,7 +169,7 @@ class NeutrinoDocumentsProvider : DocumentsProvider() {
     private fun <T> blocking(block: suspend () -> T): T = runCatching { runBlocking(Dispatchers.IO) { block() } }
         .getOrElse { e ->
             Log.w(TAG, "Provider call failed: ${e::class.simpleName}")
-            throw e as? FileNotFoundException ?: FileNotFoundException(e.message)
+            throw e as? FileNotFoundException ?: FileNotFoundException(e.message).apply { initCause(e) }
         }
 
     companion object {

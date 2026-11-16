@@ -13,6 +13,7 @@ import io.github.joshuagr.neutrino.drive.DriveClientProvider
 import io.github.joshuagr.neutrino.drive.SdkTransport
 import io.github.joshuagr.neutrino.provider.DriveDocuments
 import io.github.joshuagr.neutrino.provider.NeutrinoDocumentsProvider
+import io.github.joshuagr.neutrino.provider.OfflineCache
 import io.github.joshuagr.neutrino.upload.PendingStore
 import io.github.joshuagr.neutrino.upload.UploadNotifier
 import io.github.joshuagr.neutrino.upload.UploadWorker
@@ -82,9 +83,10 @@ val appModule = module {
     single { AccountKeys(get()) }
     single { SdkTransport(get(), get()) }
     single { DriveClientProvider(get(), get(), get(), get()) }
-    single { DriveDocuments(get()) }
+    single { OfflineCache(get()) }
+    single { DriveDocuments(get(), get()) }
     single { PendingStore(get()) }
     single { UploadNotifier(get()) }
     single { AccessLog(get()) }
-    viewModel { MainViewModel(get(), get(), get(), get(), get(), get()) }
+    viewModel { MainViewModel(get(), get(), get(), get(), get(), get(), get()) }
 }

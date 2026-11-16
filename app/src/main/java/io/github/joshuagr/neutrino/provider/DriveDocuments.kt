@@ -35,16 +35,24 @@ data class DocMeta(
  * Drive as the provider sees it. Metadata is kept in memory because clients query it in bursts
  * (KeePassDX issues 10-15 queryDocument calls per action), so only misses reach the network.
  */
-class DriveDocuments(private val drive: DriveClientProvider) {
+/** The document does not exist in Drive (as opposed to Drive being unreachable). */
+class MissingDocumentException(message: String) : java.io.FileNotFoundException(message)
+
+class DriveDocuments(private val drive: DriveClientProvider, private val offline: OfflineCache) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val meta = ConcurrentHashMap<String, DocMeta>()
     @Volatile private var rootId: String? = null
 
     suspend fun rootId(): String = rootId ?: remember(drive.get().getMyFilesFolder()).id.also { rootId = it }
 
-    suspend fun get(id: String): DocMeta = meta[id] ?: run {
-        val node = drive.get().getNode(NodeUid(id)) ?: throw java.io.FileNotFoundException("No such document")
+    /** Metadata for [id]: from memory, else Drive, else the offline copy when Drive is unreachable. */
+    suspend fun get(id: String): DocMeta = meta[id] ?: try {
+        val node = drive.get().getNode(NodeUid(id)) ?: throw MissingDocumentException("No such document")
         remember(node)
+    } catch (e: MissingDocumentException) {
+        throw e
+    } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+        offline.meta(id) ?: throw e
     }
 
     suspend fun children(folderId: String): List<DocMeta> {
@@ -68,7 +76,7 @@ class DriveDocuments(private val drive: DriveClientProvider) {
     /** Downloads the active revision of [id] to [dest] and returns that revision. */
     suspend fun download(id: String, dest: File): String {
         val revision = (drive.get().getNode(NodeUid(id)) as? FileNode)?.also(::remember)?.activeRevision
-            ?: throw java.io.FileNotFoundException("Not a file")
+            ?: throw MissingDocumentException("Not a file")
         FileOutputStream(dest).use { out ->
             drive.get().downloader(FileDownloaderRequest(revision.uid)).use { downloader ->
                 downloader.downloadToStream(scope, Channels.newChannel(out)).awaitCompletion()
@@ -84,8 +92,8 @@ class DriveDocuments(private val drive: DriveClientProvider) {
 
     /** The revision a save will be based on: the file's active revision, read fresh from Drive. */
     suspend fun activeRevision(id: String): String {
-        val node = drive.get().getNode(NodeUid(id)) as? FileNode ?: throw java.io.FileNotFoundException("Not a file")
-        return remember(node).activeRevision ?: throw java.io.FileNotFoundException("No active revision")
+        val node = drive.get().getNode(NodeUid(id)) as? FileNode ?: throw MissingDocumentException("Not a file")
+        return remember(node).activeRevision ?: throw MissingDocumentException("No active revision")
     }
 
     /** Creates an empty file so the new document has a stable Drive id from the start. */
