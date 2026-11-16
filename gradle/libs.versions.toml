@@ -1,6 +1,4 @@
 [versions]
-# compileSdk is 36 on purpose. androidx.core 1.18+ and lifecycle 2.11+ require
-# compileSdk 37 and fail checkAarMetadata, so they stay pinned below that line.
 agp = "9.2.1"
 kotlin = "2.2.10"
 coreKtx = "1.17.0"

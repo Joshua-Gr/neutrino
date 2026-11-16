@@ -39,9 +39,7 @@ val releaseSigning: Map<String, String>? = run {
 android {
     namespace = "io.github.joshuagr.neutrino"
     compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
+        version = release(37)
     }
 
     defaultConfig {
