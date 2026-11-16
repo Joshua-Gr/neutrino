@@ -5,14 +5,18 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.toList
+import me.proton.drive.sdk.entity.AvailableNameTarget
 import me.proton.drive.sdk.entity.FileDownloaderRequest
 import me.proton.drive.sdk.entity.FileNode
+import me.proton.drive.sdk.entity.FileUploaderRequest
 import me.proton.drive.sdk.entity.FolderNode
 import me.proton.drive.sdk.entity.Node
 import me.proton.drive.sdk.entity.NodeUid
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.channels.Channels
+import java.time.OffsetDateTime
 import java.util.concurrent.ConcurrentHashMap
 
 /** What the provider needs to describe one Drive node without going back to the network. */
@@ -61,8 +65,8 @@ class DriveDocuments(private val drive: DriveClientProvider) {
         return false
     }
 
-    /** Downloads the active revision of [id] to [dest]. */
-    suspend fun download(id: String, dest: File) {
+    /** Downloads the active revision of [id] to [dest] and returns that revision. */
+    suspend fun download(id: String, dest: File): String {
         val revision = (drive.get().getNode(NodeUid(id)) as? FileNode)?.also(::remember)?.activeRevision
             ?: throw java.io.FileNotFoundException("Not a file")
         FileOutputStream(dest).use { out ->
@@ -70,6 +74,31 @@ class DriveDocuments(private val drive: DriveClientProvider) {
                 downloader.downloadToStream(scope, Channels.newChannel(out)).awaitCompletion()
             }
         }
+        return revision.uid.value
+    }
+
+    /** Drops cached metadata for [id] so the next query reads the current revision from Drive. */
+    fun invalidate(id: String) {
+        meta.remove(id)
+    }
+
+    /** The revision a save will be based on: the file's active revision, read fresh from Drive. */
+    suspend fun activeRevision(id: String): String {
+        val node = drive.get().getNode(NodeUid(id)) as? FileNode ?: throw java.io.FileNotFoundException("Not a file")
+        return remember(node).activeRevision ?: throw java.io.FileNotFoundException("No active revision")
+    }
+
+    /** Creates an empty file so the new document has a stable Drive id from the start. */
+    suspend fun createFile(parentId: String, displayName: String, mimeType: String): DocMeta {
+        val client = drive.get()
+        val parent = NodeUid(parentId)
+        val name = client.getAvailableName(parent, displayName, AvailableNameTarget.FILE)
+        val request = FileUploaderRequest(parent, name, mimeType, 0, OffsetDateTime.now(), false)
+        val result = client.uploader(request).use {
+            it.uploadFromStream(scope, Channels.newChannel(ByteArrayInputStream(ByteArray(0)))).awaitCompletion()
+        }
+        meta.remove(result.nodeUid.value)
+        return get(result.nodeUid.value)
     }
 
     fun forget() {

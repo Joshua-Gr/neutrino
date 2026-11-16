@@ -7,12 +7,16 @@ import io.github.joshuagr.neutrino.auth.ForkLogin
 import io.github.joshuagr.neutrino.auth.SessionManager
 import io.github.joshuagr.neutrino.drive.AccountKeys
 import io.github.joshuagr.neutrino.drive.DriveClientProvider
+import io.github.joshuagr.neutrino.upload.PendingStore
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
+import me.proton.drive.sdk.entity.FileDownloaderRequest
+import me.proton.drive.sdk.entity.FileNode
+import me.proton.drive.sdk.entity.FileRevisionUploaderRequest
 import me.proton.drive.sdk.entity.FolderNode
 
 sealed interface UiState {
@@ -26,6 +30,7 @@ class MainViewModel(
     private val forkLogin: ForkLogin,
     private val keys: AccountKeys,
     private val drive: DriveClientProvider,
+    private val pending: PendingStore,
 ) : ViewModel() {
     private val state = MutableStateFlow<UiState>(UiState.SignedOut)
     val ui: StateFlow<UiState> = state.asStateFlow()
@@ -52,6 +57,12 @@ class MainViewModel(
     }
 
     fun signOut() {
+        val waiting = pending.all().size
+        if (waiting > 0) {
+            errorState.value = "$waiting save(s) are not uploaded yet. Signing out now would lose them; " +
+                "connect to the internet and wait for the upload first."
+            return
+        }
         signInJob?.cancel()
         viewModelScope.launch {
             report {
@@ -72,6 +83,30 @@ class MainViewModel(
         if (viaAccount) viewModelScope.launch { drive.close() }.invokeOnCompletion { loadAccount() } else loadAccount()
     }
 
+    /**
+     * Debug builds only: uploads the current content of "neutrino-test.kdbx" in My files as a new
+     * revision, as another device would, so the next save from this phone takes the conflict path.
+     */
+    fun debugSimulateRemoteChange() {
+        viewModelScope.launch {
+            report {
+                val client = drive.get()
+                val root = client.getMyFilesFolder()
+                val file = client.enumerateNodes(client.enumerateFolderChildrenNodeUids(root.uid).toList()).toList()
+                    .filterIsInstance<FileNode>().firstOrNull { it.name.getOrNull() == DEBUG_TEST_FILE }
+                    ?: error("No $DEBUG_TEST_FILE in the top level of My files")
+                val bytes = java.io.ByteArrayOutputStream().also { out ->
+                    client.downloader(FileDownloaderRequest(file.activeRevision.uid)).use {
+                        it.downloadToStream(this, java.nio.channels.Channels.newChannel(out)).awaitCompletion()
+                    }
+                }.toByteArray()
+                client.uploader(FileRevisionUploaderRequest(file.activeRevision.uid, java.time.OffsetDateTime.now(), bytes.size.toLong()))
+                    .use { it.uploadFromStream(this, java.nio.channels.Channels.newChannel(bytes.inputStream())).awaitCompletion() }
+                errorState.value = "Debug: $DEBUG_TEST_FILE changed in Drive (new revision, same content)"
+            }
+        }
+    }
+
     fun loadAccount() {
         viewModelScope.launch {
             state.value = UiState.SignedIn(null, null)
@@ -90,6 +125,10 @@ class MainViewModel(
             }
             if (sessions.current() == null) state.value = UiState.SignedOut
         }
+    }
+
+    private companion object {
+        const val DEBUG_TEST_FILE = "neutrino-test.kdbx"
     }
 
     private fun trace(step: String) {

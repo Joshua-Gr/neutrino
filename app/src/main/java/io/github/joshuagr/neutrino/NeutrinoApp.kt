@@ -11,6 +11,9 @@ import io.github.joshuagr.neutrino.drive.DriveClientProvider
 import io.github.joshuagr.neutrino.drive.SdkTransport
 import io.github.joshuagr.neutrino.provider.DriveDocuments
 import io.github.joshuagr.neutrino.provider.NeutrinoDocumentsProvider
+import io.github.joshuagr.neutrino.upload.PendingStore
+import io.github.joshuagr.neutrino.upload.UploadNotifier
+import io.github.joshuagr.neutrino.upload.UploadWorker
 import io.github.joshuagr.neutrino.ui.MainViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +35,8 @@ class NeutrinoApp : Application() {
             androidContext(this@NeutrinoApp)
             modules(appModule)
         }.koin
+        // Saves survive process death on disk; make sure each one has an upload queued.
+        koin.get<PendingStore>().all().forEach { UploadWorker.enqueue(this, it.documentId) }
         val sessions = koin.get<SessionManager>()
         val docs = koin.get<DriveDocuments>()
         // The file picker shows the Drive root only while signed in; tell it when that changes.
@@ -65,5 +70,7 @@ val appModule = module {
     single { SdkTransport(get(), get()) }
     single { DriveClientProvider(get(), get(), get(), get()) }
     single { DriveDocuments(get()) }
-    viewModel { MainViewModel(get(), get(), get(), get()) }
+    single { PendingStore(get()) }
+    single { UploadNotifier(get()) }
+    viewModel { MainViewModel(get(), get(), get(), get(), get()) }
 }

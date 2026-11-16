@@ -1,10 +1,13 @@
 package io.github.joshuagr.neutrino
 
+import android.Manifest
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -19,6 +22,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -47,6 +51,9 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun MainScreen(open: (String) -> Unit, modifier: Modifier = Modifier, viewModel: MainViewModel = koinViewModel()) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
+    // Failed uploads and conflict copies are reported as notifications; ask once.
+    val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(Unit) { askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS) }
     val error by viewModel.error.collectAsStateWithLifecycle()
     Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Neutrino", style = MaterialTheme.typography.headlineMedium)
@@ -73,6 +80,9 @@ private fun DebugActions(viewModel: MainViewModel) {
     }
     OutlinedButton(onClick = { viewModel.debugExpireAndReload(viaAccount = true) }) {
         Text("Debug: expire token (account path)")
+    }
+    OutlinedButton(onClick = viewModel::debugSimulateRemoteChange) {
+        Text("Debug: change test file in Drive")
     }
 }
 

@@ -14,6 +14,8 @@ import io.github.joshuagr.neutrino.BuildConfig
 import io.github.joshuagr.neutrino.R
 import io.github.joshuagr.neutrino.auth.SessionManager
 import io.github.joshuagr.neutrino.drive.AccountKeys
+import io.github.joshuagr.neutrino.upload.PendingStore
+import io.github.joshuagr.neutrino.upload.UploadWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.koin.core.context.GlobalContext
@@ -21,8 +23,12 @@ import java.io.File
 import java.io.FileNotFoundException
 
 /**
- * Exposes the signed-in account's "My files" through the system file picker. Read-only for now:
- * files are downloaded to a private temporary file for the duration of the open and deleted on close.
+ * Exposes the signed-in account's "My files" through the system file picker.
+ *
+ * Reads serve the newest version: a save still waiting to upload, or else the active revision,
+ * downloaded to a private temporary file deleted on close. Writes go to a private working file;
+ * on close it becomes the pending save for that document and an upload is queued. The client's
+ * close returns at once; the upload runs in the background and survives process death.
  *
  * Providers are created before Application.onCreate, so dependencies are looked up on first use.
  */
@@ -30,6 +36,7 @@ class NeutrinoDocumentsProvider : DocumentsProvider() {
     private val sessions by lazy { GlobalContext.get().get<SessionManager>() }
     private val keys by lazy { GlobalContext.get().get<AccountKeys>() }
     private val docs by lazy { GlobalContext.get().get<DriveDocuments>() }
+    private val pending by lazy { GlobalContext.get().get<PendingStore>() }
     private val closeHandler by lazy { Handler(HandlerThread("neutrino-close").apply { start() }.looper) }
     private val openDir by lazy { File(requireNotNull(context).noBackupFilesDir, "open").apply { mkdirs() } }
 
@@ -44,7 +51,7 @@ class NeutrinoDocumentsProvider : DocumentsProvider() {
             .add(Root.COLUMN_DOCUMENT_ID, rootDoc)
             .add(Root.COLUMN_TITLE, context?.getString(R.string.app_name))
             .add(Root.COLUMN_SUMMARY, keys.primaryEmail)
-            .add(Root.COLUMN_FLAGS, Root.FLAG_SUPPORTS_IS_CHILD)
+            .add(Root.COLUMN_FLAGS, Root.FLAG_SUPPORTS_IS_CHILD or Root.FLAG_SUPPORTS_CREATE)
             .add(Root.COLUMN_ICON, android.R.drawable.ic_menu_upload)
         return cursor
     }
@@ -60,27 +67,74 @@ class NeutrinoDocumentsProvider : DocumentsProvider() {
     override fun isChildDocument(parentDocumentId: String, documentId: String): Boolean =
         blocking { docs.isDescendant(parentDocumentId, documentId) }
 
-    override fun openDocument(documentId: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor {
-        if (mode != "r") throw FileNotFoundException("Writing is not supported yet")
+    override fun createDocument(parentDocumentId: String, mimeType: String, displayName: String): String {
+        if (mimeType == Document.MIME_TYPE_DIR) throw UnsupportedOperationException("Creating folders is not supported")
+        return blocking { docs.createFile(parentDocumentId, displayName, mimeType) }.id
+            .also { log("create by ${callingPackage ?: "?"}") }
+    }
+
+    override fun openDocument(documentId: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor =
+        if (mode == "r") openForRead(documentId) else openForWrite(documentId, mode)
+
+    private fun openForRead(documentId: String): ParcelFileDescriptor {
+        pending.get(documentId)?.let { local ->
+            pending.markServedPending(documentId, local)
+            log("open r by ${callingPackage ?: "?"}: pending save, ${local.content.length()} bytes")
+            return ParcelFileDescriptor.open(local.content, ParcelFileDescriptor.MODE_READ_ONLY)
+        }
         val tmp = File.createTempFile("open", ".bin", openDir)
         try {
-            blocking { docs.download(documentId, tmp) }
+            pending.markServed(documentId, blocking { docs.download(documentId, tmp) })
         } catch (e: FileNotFoundException) {
             tmp.delete()
             throw e
         }
-        if (BuildConfig.DEBUG) Log.i(TAG, "open r by ${callingPackage ?: "?"}: ${tmp.length()} bytes")
+        log("open r by ${callingPackage ?: "?"}: ${tmp.length()} bytes")
         return ParcelFileDescriptor.open(tmp, ParcelFileDescriptor.MODE_READ_ONLY, closeHandler) { tmp.delete() }
     }
 
+    private fun openForWrite(documentId: String, mode: String): ParcelFileDescriptor {
+        val local = pending.get(documentId)
+        // The base is what the client last read, not what Drive holds now: a change made elsewhere
+        // since that read must surface as a conflict, never be overwritten.
+        val base = pending.baseFor(documentId) ?: blocking { docs.activeRevision(documentId) }
+        val working = pending.newWorkingFile()
+        if (!mode.contains('t') && mode != "w") {
+            // A read-write open without truncation edits the current content in place.
+            if (local != null) {
+                local.content.copyTo(working, overwrite = true)
+            } else {
+                pending.markServed(documentId, blocking { docs.download(documentId, working) })
+            }
+        }
+        log("open $mode by ${callingPackage ?: "?"}")
+        val context = requireNotNull(context)
+        return ParcelFileDescriptor.open(working, ParcelFileDescriptor.parseMode(mode), closeHandler) { error ->
+            if (error != null) {
+                Log.w(TAG, "Write closed with an error; the save is discarded: ${error::class.simpleName}")
+                working.delete()
+                return@open
+            }
+            pending.commit(documentId, working, base)
+            docs.invalidate(documentId)
+            UploadWorker.enqueue(context, documentId)
+            log("save staged: ${pending.get(documentId)?.content?.length()} bytes, upload queued")
+        }
+    }
+
     private fun addRow(cursor: MatrixCursor, doc: DocMeta) {
+        val local = if (doc.isFolder) null else pending.get(doc.id)
         cursor.newRow()
             .add(Document.COLUMN_DOCUMENT_ID, doc.id)
             .add(Document.COLUMN_DISPLAY_NAME, doc.name)
             .add(Document.COLUMN_MIME_TYPE, if (doc.isFolder) Document.MIME_TYPE_DIR else doc.mimeType ?: DEFAULT_MIME)
-            .add(Document.COLUMN_SIZE, doc.size)
-            .add(Document.COLUMN_LAST_MODIFIED, doc.lastModified)
-            .add(Document.COLUMN_FLAGS, 0)
+            .add(Document.COLUMN_SIZE, local?.content?.length() ?: doc.size)
+            .add(Document.COLUMN_LAST_MODIFIED, local?.savedAt ?: doc.lastModified)
+            .add(Document.COLUMN_FLAGS, if (doc.isFolder) Document.FLAG_DIR_SUPPORTS_CREATE else Document.FLAG_SUPPORTS_WRITE)
+    }
+
+    private fun log(message: String) {
+        if (BuildConfig.DEBUG) Log.i(TAG, message)
     }
 
     /**

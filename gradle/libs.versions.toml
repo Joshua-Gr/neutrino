@@ -12,6 +12,7 @@ lifecycleViewmodel = "2.10.0"
 coroutines = "1.10.2"
 okhttp = "5.4.0"
 koin = "4.2.2"
+workRuntime = "2.11.2"
 # Proton Drive SDK (Kotlin binding over the C# core). The OpenPGP library is a
 # runtime-scoped dependency in the SDK's POM, so it is declared explicitly to be
 # usable for unlocking account keys.
@@ -31,6 +32,7 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 koin-android = { group = "io.insert-koin", name = "koin-android", version.ref = "koin" }
 koin-androidx-compose = { group = "io.insert-koin", name = "koin-androidx-compose", version.ref = "koin" }
+androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workRuntime" }
 proton-drive-sdk = { group = "me.proton.drive", name = "sdk", version.ref = "protonDriveSdk" }
 proton-golib = { group = "me.proton.crypto", name = "android-golib", version.ref = "protonGolib" }
 
