@@ -2,6 +2,7 @@ package io.github.joshuagr.neutrino
 
 import android.app.Application
 import android.provider.DocumentsContract
+import io.github.joshuagr.neutrino.access.AccessLog
 import io.github.joshuagr.neutrino.api.ProtonApi
 import io.github.joshuagr.neutrino.auth.ForkLogin
 import io.github.joshuagr.neutrino.auth.SessionManager
@@ -72,5 +73,6 @@ val appModule = module {
     single { DriveDocuments(get()) }
     single { PendingStore(get()) }
     single { UploadNotifier(get()) }
-    viewModel { MainViewModel(get(), get(), get(), get(), get()) }
+    single { AccessLog(get()) }
+    viewModel { MainViewModel(get(), get(), get(), get(), get(), get()) }
 }

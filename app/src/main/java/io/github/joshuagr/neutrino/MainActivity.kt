@@ -1,108 +1,108 @@
 package io.github.joshuagr.neutrino
 
 import android.Manifest
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import io.github.joshuagr.neutrino.ui.MainViewModel
-import io.github.joshuagr.neutrino.ui.UiState
-import org.koin.androidx.compose.koinViewModel
+import androidx.core.net.toUri
+import io.github.joshuagr.neutrino.auth.SignInWaitService
+import io.github.joshuagr.neutrino.ui.MainScreen
+import io.github.joshuagr.neutrino.ui.theme.NeutrinoTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            MaterialTheme {
-                Scaffold { insets ->
+            NeutrinoTheme {
+                // Failed uploads, conflict copies and the sign-in return are notifications; ask once.
+                val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+                LaunchedEffect(Unit) { askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS) }
+                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     MainScreen(
-                        open = { url -> startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) },
-                        modifier = Modifier.padding(insets).padding(24.dp),
+                        openSignIn = ::openSignIn,
+                        waitForSignIn = { waiting ->
+                            if (waiting) SignInWaitService.start(applicationContext) else SignInWaitService.stop(applicationContext)
+                        },
+                        returnToApp = { returnToApp(applicationContext) },
                     )
                 }
             }
         }
     }
-}
 
-@Composable
-private fun MainScreen(open: (String) -> Unit, modifier: Modifier = Modifier, viewModel: MainViewModel = koinViewModel()) {
-    val ui by viewModel.ui.collectAsStateWithLifecycle()
-    // Failed uploads and conflict copies are reported as notifications; ask once.
-    val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    LaunchedEffect(Unit) { askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS) }
-    val error by viewModel.error.collectAsStateWithLifecycle()
-    Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("Neutrino", style = MaterialTheme.typography.headlineMedium)
-        Text(
-            "Third-party application, not affiliated with or supported by Proton.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        when (val state = ui) {
-            UiState.SignedOut -> Button(onClick = { viewModel.signIn(open) }) { Text("Sign in with Proton") }
-            is UiState.SigningIn -> SigningIn { open(state.signInUrl) }
-            is UiState.SignedIn -> {
-                SignedIn(state, onRefresh = viewModel::loadAccount, onSignOut = viewModel::signOut)
-                if (BuildConfig.DEBUG) DebugActions(viewModel)
-            }
+    override fun onResume() {
+        super.onResume()
+        resumed = true
+    }
+
+    override fun onPause() {
+        resumed = false
+        super.onPause()
+    }
+
+    /** Opens Proton's sign-in page in a Custom Tab, which stays in this app's task. */
+    private fun openSignIn(url: String) {
+        CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(this, url.toUri())
+    }
+
+    companion object {
+        @Volatile private var resumed = false
+        private const val CHANNEL = "sign-in"
+        private const val NOTIFICATION_ID = 1
+        private const val RETURN_CHECK_MS = 2_000L
+
+        /**
+         * Brings the app back over the sign-in tab once the session has arrived. Android may refuse
+         * an activity start from the background; if the app is not in front shortly after, a
+         * notification offers the way back instead.
+         */
+        fun returnToApp(context: Context) {
+            val intent = Intent(context, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            runCatching { context.startActivity(intent) }
+                .onFailure { android.util.Log.w("Neutrino", "Return to app refused: ${it::class.simpleName}") }
+            Handler(Looper.getMainLooper()).postDelayed({
+                android.util.Log.i("Neutrino", "Return to app: in front=$resumed")
+                if (!resumed) notifySignedIn(context, intent)
+            }, RETURN_CHECK_MS)
         }
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-    }
-}
 
-@Composable
-private fun DebugActions(viewModel: MainViewModel) {
-    OutlinedButton(onClick = { viewModel.debugExpireAndReload(viaAccount = false) }) {
-        Text("Debug: expire token (SDK path)")
-    }
-    OutlinedButton(onClick = { viewModel.debugExpireAndReload(viaAccount = true) }) {
-        Text("Debug: expire token (account path)")
-    }
-    OutlinedButton(onClick = viewModel::debugSimulateRemoteChange) {
-        Text("Debug: change test file in Drive")
-    }
-}
+        private fun notifySignedIn(context: Context, intent: Intent) {
+            val manager = context.getSystemService(NotificationManager::class.java)
+            if (!manager.areNotificationsEnabled()) return
+            manager.createNotificationChannel(NotificationChannel(CHANNEL, "Sign-in", NotificationManager.IMPORTANCE_HIGH))
+            val open = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+            manager.notify(
+                NOTIFICATION_ID,
+                Notification.Builder(context, CHANNEL)
+                    .setSmallIcon(android.R.drawable.stat_sys_upload_done)
+                    .setContentTitle("Signed in")
+                    .setContentText("Tap to return to Neutrino.")
+                    .setContentIntent(open)
+                    .setAutoCancel(true)
+                    .setTimeoutAfter(RETURN_CHECK_MS * NOTIFICATION_LIFETIME_FACTOR)
+                    .build(),
+            )
+        }
 
-@Composable
-private fun SigningIn(reopen: () -> Unit) {
-    Text("Finish signing in on Proton's page in your browser.")
-    CircularProgressIndicator()
-    OutlinedButton(onClick = reopen) { Text("Open the sign-in page again") }
-}
-
-@Composable
-private fun SignedIn(state: UiState.SignedIn, onRefresh: () -> Unit, onSignOut: () -> Unit) {
-    Text("Signed in" + (state.email?.let { " as $it" } ?: ""))
-    OutlinedButton(onClick = onRefresh) { Text("Refresh") }
-    OutlinedButton(onClick = onSignOut) { Text("Sign out") }
-    val entries = state.rootEntries
-    if (entries == null) {
-        CircularProgressIndicator()
-    } else {
-        Text("My files (${entries.size})", style = MaterialTheme.typography.titleMedium)
-        LazyColumn { items(entries) { Text(it, modifier = Modifier.padding(vertical = 4.dp)) } }
+        private const val NOTIFICATION_LIFETIME_FACTOR = 30
     }
 }

@@ -112,6 +112,7 @@ dependencies {
     implementation(libs.koin.android)
     implementation(libs.koin.androidx.compose)
     implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.browser)
     implementation(libs.proton.drive.sdk)
     implementation(libs.proton.golib)
 }

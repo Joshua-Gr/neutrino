@@ -1,6 +1,8 @@
 package io.github.joshuagr.neutrino.auth
 
 import android.util.Base64
+import android.util.Log
+import io.github.joshuagr.neutrino.BuildConfig
 import io.github.joshuagr.neutrino.api.ProtonApi
 import kotlinx.coroutines.delay
 import org.json.JSONObject
@@ -40,9 +42,11 @@ class ForkLogin(private val api: ProtonApi) {
         while (System.currentTimeMillis() < deadline) {
             val status = try {
                 api.call("GET", "/auth/v4/sessions/forks/${pending.selector}")
-            } catch (_: IOException) {
+            } catch (e: IOException) {
+                if (BuildConfig.DEBUG) Log.i(TAG, "Sign-in poll: ${e::class.simpleName}")
                 null
             }
+            if (BuildConfig.DEBUG) Log.i(TAG, "Sign-in poll: HTTP ${status?.status}")
             when {
                 status == null || status.status == HTTP_NOT_READY -> delay(POLL_MS)
                 status.ok -> return sessionFrom(status.body, pending.key)
@@ -67,6 +71,8 @@ class ForkLogin(private val api: ProtonApi) {
     }
 
     private companion object {
+        const val TAG = "Neutrino"
+
         /** Proton's designated client id for third-party Drive applications. */
         const val CLIENT_ID = "external-drive"
         const val KEY_BYTES = 32

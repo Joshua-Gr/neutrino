@@ -12,6 +12,7 @@ import android.provider.DocumentsProvider
 import android.util.Log
 import io.github.joshuagr.neutrino.BuildConfig
 import io.github.joshuagr.neutrino.R
+import io.github.joshuagr.neutrino.access.AccessLog
 import io.github.joshuagr.neutrino.auth.SessionManager
 import io.github.joshuagr.neutrino.drive.AccountKeys
 import io.github.joshuagr.neutrino.upload.PendingStore
@@ -37,6 +38,7 @@ class NeutrinoDocumentsProvider : DocumentsProvider() {
     private val keys by lazy { GlobalContext.get().get<AccountKeys>() }
     private val docs by lazy { GlobalContext.get().get<DriveDocuments>() }
     private val pending by lazy { GlobalContext.get().get<PendingStore>() }
+    private val access by lazy { GlobalContext.get().get<AccessLog>() }
     private val closeHandler by lazy { Handler(HandlerThread("neutrino-close").apply { start() }.looper) }
     private val openDir by lazy { File(requireNotNull(context).noBackupFilesDir, "open").apply { mkdirs() } }
 
@@ -73,8 +75,12 @@ class NeutrinoDocumentsProvider : DocumentsProvider() {
             .also { log("create by ${callingPackage ?: "?"}") }
     }
 
-    override fun openDocument(documentId: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor =
-        if (mode == "r") openForRead(documentId) else openForWrite(documentId, mode)
+    override fun openDocument(documentId: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor {
+        val caller = callingPackage
+        val descriptor = if (mode == "r") openForRead(documentId) else openForWrite(documentId, mode, caller)
+        runCatching { access.opened(documentId, blocking { docs.get(documentId) }.name, caller) }
+        return descriptor
+    }
 
     private fun openForRead(documentId: String): ParcelFileDescriptor {
         pending.get(documentId)?.let { local ->
@@ -93,7 +99,7 @@ class NeutrinoDocumentsProvider : DocumentsProvider() {
         return ParcelFileDescriptor.open(tmp, ParcelFileDescriptor.MODE_READ_ONLY, closeHandler) { tmp.delete() }
     }
 
-    private fun openForWrite(documentId: String, mode: String): ParcelFileDescriptor {
+    private fun openForWrite(documentId: String, mode: String, caller: String?): ParcelFileDescriptor {
         val local = pending.get(documentId)
         // The base is what the client last read, not what Drive holds now: a change made elsewhere
         // since that read must surface as a conflict, never be overwritten.
@@ -116,6 +122,7 @@ class NeutrinoDocumentsProvider : DocumentsProvider() {
                 return@open
             }
             pending.commit(documentId, working, base)
+            runCatching { access.saved(documentId, blocking { docs.get(documentId) }.name, caller) }
             docs.invalidate(documentId)
             UploadWorker.enqueue(context, documentId)
             log("save staged: ${pending.get(documentId)?.content?.length()} bytes, upload queued")

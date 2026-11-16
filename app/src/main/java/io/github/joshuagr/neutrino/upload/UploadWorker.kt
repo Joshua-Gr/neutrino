@@ -40,6 +40,7 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
     private val drive: DriveClientProvider by inject()
     private val docs: DriveDocuments by inject()
     private val notifier: UploadNotifier by inject()
+    private val access: io.github.joshuagr.neutrino.access.AccessLog by inject()
 
     override suspend fun doWork(): Result = coroutineScope {
         val documentId = inputData.getString(KEY_DOCUMENT) ?: return@coroutineScope Result.failure()
@@ -76,6 +77,7 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             }
         }
         docs.invalidate(pending.documentId)
+        access.uploaded(pending.documentId)
         notifier.clear(pending.documentId)
     }
 
