@@ -95,9 +95,13 @@ class NeutrinoDocumentsProvider : DocumentsProvider() {
         }
         val tmp = File.createTempFile("open", ".bin", openDir)
         val revision = try {
-            blocking { docs.download(documentId, tmp) }.also { revision ->
-                runCatching { offline.put(blocking { docs.get(documentId) }, revision, tmp) }
+            val fetched = blocking { docs.download(documentId, tmp) }
+            if (fetched.fromOfflineCopy) {
+                log("open r by ${callingPackage ?: "?"}: offline copy is current")
+            } else {
+                runCatching { offline.put(blocking { docs.get(documentId) }, fetched.revision, tmp) }
             }
+            fetched.revision
         } catch (e: MissingDocumentException) {
             tmp.delete()
             throw e
@@ -131,7 +135,7 @@ class NeutrinoDocumentsProvider : DocumentsProvider() {
             if (local != null) {
                 local.content.copyTo(working, overwrite = true)
             } else {
-                pending.markServed(documentId, blocking { docs.download(documentId, working) })
+                pending.markServed(documentId, blocking { docs.download(documentId, working) }.revision)
             }
         }
         log("open $mode by ${callingPackage ?: "?"}")

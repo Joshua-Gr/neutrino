@@ -31,6 +31,9 @@ data class DocMeta(
     val activeRevision: String?,
 )
 
+/** A revision written to a local file, and whether it came from the offline copy instead of Drive. */
+data class Fetched(val revision: String, val fromOfflineCopy: Boolean)
+
 /**
  * Drive as the provider sees it. Metadata is kept in memory because clients query it in bursts
  * (KeePassDX issues 10-15 queryDocument calls per action), so only misses reach the network.
@@ -73,16 +76,23 @@ class DriveDocuments(private val drive: DriveClientProvider, private val offline
         return false
     }
 
-    /** Downloads the active revision of [id] to [dest] and returns that revision. */
-    suspend fun download(id: String, dest: File): String {
+    /**
+     * Writes the active revision of [id] to [dest]. When the offline copy already holds that
+     * revision it is decrypted locally; otherwise the revision is downloaded from Drive.
+     */
+    suspend fun download(id: String, dest: File): Fetched {
         val revision = (drive.get().getNode(NodeUid(id)) as? FileNode)?.also(::remember)?.activeRevision
             ?: throw MissingDocumentException("Not a file")
+        val uid = revision.uid.value
+        if (offline.revision(id) == uid && runCatching { offline.decryptTo(id, dest) }.getOrNull() == uid) {
+            return Fetched(uid, fromOfflineCopy = true)
+        }
         FileOutputStream(dest).use { out ->
             drive.get().downloader(FileDownloaderRequest(revision.uid)).use { downloader ->
                 downloader.downloadToStream(scope, Channels.newChannel(out)).awaitCompletion()
             }
         }
-        return revision.uid.value
+        return Fetched(uid, fromOfflineCopy = false)
     }
 
     /** Drops cached metadata for [id] so the next query reads the current revision from Drive. */
