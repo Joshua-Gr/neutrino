@@ -35,7 +35,7 @@ Out of scope:
 Every release APK is signed with the same key. Its certificate SHA-256 digest is:
 
 ```
-a8f65fc82b7399b116d6c687b37308aae2b9b94970d04920ba434dbb294dacb2
+a56d0c954aacd8cce7e072aeb0703fdc1329beb11c81a09a0330c2b4a39a2242
 ```
 
 Check a downloaded APK with `apksigner` from the Android SDK build tools:
