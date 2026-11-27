@@ -1,10 +1,10 @@
 [versions]
-agp = "9.5.1"
+agp = "9.5.2"
 kotlin = "2.4.21"
 coreKtx = "1.19.1"
 lifecycleRuntimeKtx = "2.10.0"
 activityCompose = "1.13.0"
-composeBom = "2026.09.00"
+composeBom = "2026.11.01"
 detekt = "1.23.8"
 lifecycleViewmodel = "2.10.0"
 coroutines = "1.11.0"
@@ -15,7 +15,7 @@ browser = "1.10.0"
 # Proton Drive SDK (Kotlin binding over the C# core). The OpenPGP library is a
 # runtime-scoped dependency in the SDK's POM, so it is declared explicitly to be
 # usable for unlocking account keys.
-protonDriveSdk = "0.33.0"
+protonDriveSdk = "0.33.1"
 protonGolib = "2.10.0-2"
 
 [libraries]
